@@ -12,8 +12,11 @@
 # License for the specific language governing permissions and limitations
 # under the License.
 
-from nodepool.driver.openstack.handler import OpenStackNodeRequestHandler
+from nodepool.driver.openstack.config import OpenStackProviderConfig
 
 
-class FakeNodeRequestHandler(OpenStackNodeRequestHandler):
-    pass
+class FakeProviderConfig(OpenStackProviderConfig):
+    def _cloudKwargs(self):
+        cloud_kwargs = super(FakeProviderConfig, self)._cloudKwargs()
+        cloud_kwargs['validate'] = False
+        return cloud_kwargs

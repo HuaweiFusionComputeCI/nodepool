@@ -30,6 +30,7 @@ from nodepool import config as nodepool_config
 from nodepool import zk
 from nodepool.driver.fake.handler import FakeNodeRequestHandler
 from nodepool.driver.openstack.handler import OpenStackNodeRequestHandler
+from nodepool.driver.static.handler import StaticNodeRequestHandler
 
 
 MINS = 60
@@ -146,6 +147,8 @@ class PoolWorker(threading.Thread):
             return FakeNodeRequestHandler(self, request)
         elif provider.driver.name == 'openstack':
             return OpenStackNodeRequestHandler(self, request)
+        elif provider.driver.name == 'static':
+            return StaticNodeRequestHandler(self, request)
         else:
             raise RuntimeError("Unknown provider driver %s" % provider.driver)
 
@@ -348,7 +351,7 @@ class CleanupWorker(BaseCleanupWorker):
 
     def _resetLostRequest(self, zk_conn, req):
         '''
-        Reset the request state and deallocate nodes.
+        Reset the request state and unallocate nodes.
 
         :param ZooKeeper zk_conn: A ZooKeeper connection object.
         :param NodeRequest req: The lost NodeRequest object.
@@ -364,21 +367,14 @@ class CleanupWorker(BaseCleanupWorker):
                     zk_conn.lockNode(node)
                 except exceptions.ZKLockException:
                     self.log.warning(
-                        "Unable to grab lock to deallocate node %s from "
-                        "request %s", node.id, req.id)
+                        "Unable to unallocate node %s from request %s",
+                        node.id, req.id)
                     return
 
                 node.allocated_to = None
-                try:
-                    zk_conn.storeNode(node)
-                    self.log.debug("Deallocated node %s for lost request %s",
-                                   node.id, req.id)
-                except Exception:
-                    self.log.exception(
-                        "Unable to deallocate node %s from request %s:",
-                        node.id, req.id)
-
+                zk_conn.storeNode(node)
                 zk_conn.unlockNode(node)
+                self.log.debug("Unallocated lost request node %s", node.id)
 
         req.state = zk.REQUESTED
         req.nodes = []
@@ -402,12 +398,7 @@ class CleanupWorker(BaseCleanupWorker):
                 except exceptions.ZKLockException:
                     continue
 
-                try:
-                    self._resetLostRequest(zk_conn, req)
-                except Exception:
-                    self.log.exception("Error resetting lost request %s:",
-                                       req.id)
-
+                self._resetLostRequest(zk_conn, req)
                 zk_conn.unlockNodeRequest(req)
 
     def _cleanupNodeRequestLocks(self):
@@ -467,8 +458,7 @@ class CleanupWorker(BaseCleanupWorker):
                     node.provider = provider.name
                     self._deleteInstance(node)
 
-            if provider.clean_floating_ips:
-                manager.cleanupLeakedFloaters()
+            manager.cleanupLeakedResources()
 
     def _cleanupMaxReadyAge(self):
         '''
@@ -512,18 +502,9 @@ class CleanupWorker(BaseCleanupWorker):
                     zk_conn.unlockNode(node)
                     continue
 
-                self.log.debug("Node %s exceeds max ready age: %s >= %s",
-                               node.id, now - node.state_time,
-                               label.max_ready_age)
-
                 # The NodeDeleter thread will unlock and remove the
                 # node from ZooKeeper if it succeeds.
-                try:
-                    self._deleteInstance(node)
-                except Exception:
-                    self.log.exception("Failure deleting aged node %s:",
-                                       node.id)
-                    zk_conn.unlockNode(node)
+                self._deleteInstance(node)
 
     def _run(self):
         '''
@@ -582,16 +563,11 @@ class DeletedNodeWorker(BaseCleanupWorker):
                 else:
                     # Double check node conditions after lock
                     if node.state == zk.READY and node.allocated_to:
+                        self.log.debug(
+                            "Unallocating node %s with missing request %s",
+                            node.id, node.allocated_to)
                         node.allocated_to = None
-                        try:
-                            zk_conn.storeNode(node)
-                            self.log.debug(
-                                "Deallocated node %s with missing request %s",
-                                node.id, node.allocated_to)
-                        except Exception:
-                            self.log.exception(
-                                "Failed to deallocate node %s for missing "
-                                "request %s:", node.id, node.allocated_to)
+                        zk_conn.storeNode(node)
 
                     zk_conn.unlockNode(node)
 
@@ -612,20 +588,9 @@ class DeletedNodeWorker(BaseCleanupWorker):
                     zk_conn.unlockNode(node)
                     continue
 
-                self.log.debug(
-                    "Marking for deletion unlocked node %s "
-                    "(state: %s, allocated_to: %s)",
-                    node.id, node.state, node.allocated_to)
-
                 # The NodeDeleter thread will unlock and remove the
                 # node from ZooKeeper if it succeeds.
-                try:
-                    self._deleteInstance(node)
-                except Exception:
-                    self.log.exception(
-                        "Failure deleting node %s in cleanup state %s:",
-                        node.id, node.state)
-                    zk_conn.unlockNode(node)
+                self._deleteInstance(node)
 
     def _run(self):
         try:
@@ -798,6 +763,11 @@ class NodePool(threading.Thread):
                     return True
         return False
 
+        for provider_name in label.providers.keys():
+            if self.zk.getMostRecentImageUpload(label.image, provider_name):
+                return True
+        return False
+
     def createMinReady(self):
         '''
         Create node requests to make the minimum amount of ready nodes.
@@ -813,7 +783,7 @@ class NodePool(threading.Thread):
             req.requestor = "NodePool:min-ready"
             req.node_types.append(label_name)
             req.reuse = False    # force new node launches
-            self.zk.storeNodeRequest(req, priority="100")
+            self.zk.storeNodeRequest(req)
             if label_name not in self._submittedRequests:
                 self._submittedRequests[label_name] = []
             self._submittedRequests[label_name].append(req)

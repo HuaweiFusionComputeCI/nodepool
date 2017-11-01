@@ -625,9 +625,6 @@ class ZooKeeper(object):
         except kze.LockTimeout:
             raise npe.TimeoutException(
                 "Timeout trying to acquire lock %s" % lock_path)
-        except kze.NoNodeError:
-            have_lock = False
-            self.log.error("Image build not found for locking: %s", image)
 
         # If we aren't blocking, it's possible we didn't get the lock
         # because someone else has it.
@@ -645,10 +642,6 @@ class ZooKeeper(object):
         except kze.LockTimeout:
             raise npe.TimeoutException(
                 "Timeout trying to acquire lock %s" % lock_path)
-        except kze.NoNodeError:
-            have_lock = False
-            self.log.error("Image build number not found for locking: %s, %s",
-                           build_number, image)
 
         # If we aren't blocking, it's possible we didn't get the lock
         # because someone else has it.
@@ -666,10 +659,6 @@ class ZooKeeper(object):
         except kze.LockTimeout:
             raise npe.TimeoutException(
                 "Timeout trying to acquire lock %s" % lock_path)
-        except kze.NoNodeError:
-            have_lock = False
-            self.log.error("Image upload not found for locking: %s, %s, %s",
-                           build_number, provider, image)
 
         # If we aren't blocking, it's possible we didn't get the lock
         # because someone else has it.
@@ -1447,9 +1436,6 @@ class ZooKeeper(object):
         except kze.LockTimeout:
             raise npe.TimeoutException(
                 "Timeout trying to acquire lock %s" % path)
-        except kze.NoNodeError:
-            have_lock = False
-            self.log.error("Request not found for locking: %s", request)
 
         # If we aren't blocking, it's possible we didn't get the lock
         # because someone else has it.
@@ -1497,9 +1483,6 @@ class ZooKeeper(object):
         except kze.LockTimeout:
             raise npe.TimeoutException(
                 "Timeout trying to acquire lock %s" % path)
-        except kze.NoNodeError:
-            have_lock = False
-            self.log.error("Node not found for locking: %s", node)
 
         # If we aren't blocking, it's possible we didn't get the lock
         # because someone else has it.
@@ -1646,16 +1629,3 @@ class ZooKeeper(object):
             req = self.getNodeRequest(req_id)
             if req:
                 yield req
-
-    def countPoolNodes(self, provider_name, pool_name):
-        '''
-        Count the number of nodes that exist for the given provider pool.
-
-        :param str provider_name: The provider name.
-        :param str pool_name: The pool name.
-        '''
-        count = 0
-        for node in self.nodeIterator():
-            if node.provider == provider_name and node.pool == pool_name:
-                count = count + 1
-        return count

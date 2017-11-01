@@ -73,39 +73,6 @@ class TestLauncher(tests.DBTestCase):
         self.assertReportedStat('nodepool.nodes.ready', '1|g')
         self.assertReportedStat('nodepool.nodes.building', '0|g')
 
-    def test_node_assignment_order(self):
-        """Test that nodes are assigned in the order requested"""
-        configfile = self.setup_config('node_many_labels.yaml')
-        self._useBuilder(configfile)
-        self.waitForImage('fake-provider', 'fake-image')
-
-        pool = self.useNodepool(configfile, watermark_sleep=1)
-        pool.start()
-
-        self.waitForNodes('fake-label1')
-        self.waitForNodes('fake-label2')
-        self.waitForNodes('fake-label3')
-        self.waitForNodes('fake-label4')
-
-        req = zk.NodeRequest()
-        req.state = zk.REQUESTED
-        req.node_types.append('fake-label3')
-        req.node_types.append('fake-label1')
-        req.node_types.append('fake-label4')
-        req.node_types.append('fake-label2')
-        self.zk.storeNodeRequest(req)
-
-        req = self.waitForNodeRequest(req)
-        self.assertEqual(req.state, zk.FULFILLED)
-        self.assertEqual(4, len(req.nodes))
-        nodes = []
-        for node_id in req.nodes:
-            nodes.append(self.zk.getNode(node_id))
-        self.assertEqual(nodes[0].type, 'fake-label3')
-        self.assertEqual(nodes[1].type, 'fake-label1')
-        self.assertEqual(nodes[2].type, 'fake-label4')
-        self.assertEqual(nodes[3].type, 'fake-label2')
-
     def test_node_assignment_at_quota(self):
         '''
         Successful node launch should have unlocked nodes in READY state
@@ -227,35 +194,6 @@ class TestLauncher(tests.DBTestCase):
         self.assertEqual(0, manager.createServer_fails)
         self.assertEqual(req.state, zk.FAILED)
         self.assertNotEqual(req.declined_by, [])
-
-    def test_fail_minready_request_at_capacity(self):
-        '''
-        A min-ready request to a provider that is already at capacity should
-        be declined.
-        '''
-        configfile = self.setup_config('node_min_ready_capacity.yaml')
-        self._useBuilder(configfile)
-        self.waitForImage('fake-provider', 'fake-image')
-        pool = self.useNodepool(configfile, watermark_sleep=1)
-        pool.start()
-
-        # Get an initial node ready
-        req = zk.NodeRequest()
-        req.state = zk.REQUESTED
-        req.node_types.append("fake-label")
-        self.zk.storeNodeRequest(req)
-        req = self.waitForNodeRequest(req)
-        self.assertEqual(req.state, zk.FULFILLED)
-
-        # Now simulate a min-ready request
-        min_ready_req = zk.NodeRequest()
-        min_ready_req.state = zk.REQUESTED
-        min_ready_req.node_types.append("fake-label")
-        min_ready_req.requestor = "NodePool:min-ready"
-        self.zk.storeNodeRequest(min_ready_req)
-        min_ready_req = self.waitForNodeRequest(min_ready_req)
-        self.assertEqual(min_ready_req.state, zk.FAILED)
-        self.assertNotEqual(min_ready_req.declined_by, [])
 
     def test_invalid_image_fails(self):
         '''

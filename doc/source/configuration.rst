@@ -216,15 +216,37 @@ Example configuration::
 
 .. _provider:
 
-provider
+providers
 ---------
 
-Lists the OpenStack cloud providers Nodepool should use.  Within each
-provider the available Nodepool image types are defined (see
-:ref:`provider_diskimages`.
+Lists the providers Nodepool should use. Each provider is associated to
+a driver listed below.
 
-A provider's resources are partitioned into groups called "pools" (see
-:ref:`pools` for details), and within a pool, the node types which are
+**required**
+
+  ``name``
+
+
+**optional**
+
+  ``driver``
+    Default to *openstack*
+
+  ``max-concurrency``
+    Maximum number of node requests that this provider is allowed to handle
+    concurrently. The default, if not specified, is to have no maximum. Since
+    each node request is handled by a separate thread, this can be useful for
+    limiting the number of threads used by the nodepool-launcher daemon.
+
+
+OpenStack driver
+^^^^^^^^^^^^^^^^
+
+Within each OpenStack provider the available Nodepool image types are defined
+(see :ref:`provider_diskimages`).
+
+An OpenStack provider's resources are partitioned into groups called "pools"
+(see :ref:`pools` for details), and within a pool, the node types which are
 to be made available are listed (see :ref:`pool_labels` for
 details).
 
@@ -232,6 +254,7 @@ Example::
 
   providers:
     - name: provider1
+      driver: openstack
       cloud: example
       region-name: 'region1'
       rate: 1.0
@@ -266,6 +289,8 @@ Example::
               min-ram: 8192
               diskimage: devstack-trusty
     - name: provider2
+      driver: openstack
+      cloud: example2
       region-name: 'region1'
       rate: 1.0
       image-name-format: 'template-{image_name}-{timestamp}'
@@ -290,8 +315,6 @@ Example::
               diskimage: devstack-trusty
 
 **required**
-
-  ``name``
 
   ``cloud``
   Name of a cloud configured in ``clouds.yaml``.
@@ -350,18 +373,12 @@ Example::
     OpenStack project and will attempt to clean unattached floating ips that
     may have leaked around restarts.
 
-  ``max-concurrency``
-    Maximum number of node requests that this provider is allowed to handle
-    concurrently. The default, if not specified, is to have no maximum. Since
-    each node request is handled by a separate thread, this can be useful for
-    limiting the number of threads used by the nodepool-launcher daemon.
-
 .. _pools:
 
 pools
 ~~~~~
 
-A pool defines a group of resources from a provider.  Each pool has a
+A pool defines a group of resources from an OpenStack provider. Each pool has a
 maximum number of nodes which can be launched from it, along with a
 number of cloud-related attributes used when launching nodes.
 
@@ -565,3 +582,61 @@ Example configuration::
     When booting an image from volume, how big should the created volume be.
 
     In gigabytes. Default 50.
+
+
+Static driver
+^^^^^^^^^^^^^
+
+The static provider driver is used to define static nodes. Nodes are also
+partitioned into groups called "pools" (see :ref:`static_nodes` for details).
+
+Example::
+
+  providers:
+    - name: static-rack
+      driver: static
+      pools:
+        - name: main
+          nodes:
+            - name: trusty.example.com
+              labels: trusty-static
+              host-key: fake-key
+              timeout: 13
+              ssh-port: 22022
+              username: zuul
+              max-parallel-jobs: 1
+
+.. _static_nodes:
+
+static nodes
+~~~~~~~~~~~~
+
+Each entry in a pool`s nodes section indicate a static node and it's
+corresponding label.
+
+**required**
+
+  ``name``
+  The hostname or ip address of the static node.
+
+  ``labels``
+  A space separated list of labels associated with the node.
+
+  ``host-key``
+  The ssh host key of the node.
+
+**optional**
+
+  ``username``
+  The username nodepool will use to validate it can connect to the node.
+  Default to *root*
+
+  ``timeout``
+  The timeout in second before the ssh ping is considered failed.
+  Default to *5* seconds
+
+  ``ssh-port``
+  The ssh port, default to *22*
+
+  ``max-parallel-jobs``
+  The number of jobs that can run in parallel on this node, default to *1*.

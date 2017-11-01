@@ -136,7 +136,6 @@ class NodeLauncher(threading.Thread, stats.StatsReporter):
             az=self._node.az,
             config_drive=config_drive,
             nodepool_node_id=self._node.id,
-            nodepool_node_label=self._node.type,
             nodepool_image_name=image_name,
             networks=self._pool.networks,
             boot_from_volume=self._label.boot_from_volume,
@@ -284,6 +283,8 @@ class OpenStackNodeLaunchManager(NodeLaunchManager):
 
 
 class OpenStackNodeRequestHandler(NodeRequestHandler):
+    log = logging.getLogger("nodepool.driver.openstack."
+                            "OpenStackNodeRequestHandler")
 
     def __init__(self, pw, request):
         super(OpenStackNodeRequestHandler, self).__init__(pw, request)
@@ -470,12 +471,6 @@ class OpenStackNodeRequestHandler(NodeRequestHandler):
         Main body for the OpenStackNodeRequestHandler.
         '''
         self._setFromPoolWorker()
-
-        # We have the launcher_id attr after _setFromPoolWorker() is called.
-        self.log = logging.getLogger(
-            "nodepool.driver.openstack.OpenStackNodeRequestHandler[%s]" %
-            self.launcher_id)
-
         declined_reasons = []
         invalid_types = self._invalidNodeTypes()
         if invalid_types:
@@ -485,15 +480,6 @@ class OpenStackNodeRequestHandler(NodeRequestHandler):
             declined_reasons.append('images are not available')
         if len(self.request.node_types) > self.pool.max_servers:
             declined_reasons.append('it would exceed quota')
-
-        # For min-ready requests, which do not re-use READY nodes, let's
-        # decline if this provider is already at capacity. Otherwise, we
-        # could end up wedged until another request frees up a node.
-        if self.request.requestor == "NodePool:min-ready":
-            current_count = self.zk.countPoolNodes(self.provider.name,
-                                                   self.pool.name)
-            if current_count == self.pool.max_servers:
-                declined_reasons.append("provider cannot satisify min-ready")
 
         if declined_reasons:
             self.log.debug("Declining node request %s because %s",
